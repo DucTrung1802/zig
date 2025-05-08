@@ -1,6 +1,6 @@
 const std = @import("std");
-const math = @import("math.zig");
-const utils = @import("utils.zig");
+const math = @import("math/math.zig");
+const utils = @import("utils/utils.zig");
 
 pub fn main() !void {
     const sum = math.add(10, 5);
