@@ -1,30 +1,49 @@
 const std = @import("std");
 
 pub const Logger = struct {
+    const fallback_name = "evolution_testing";
     alloc: std.mem.Allocator,
+    file: ?std.fs.File,
 
-    pub fn init(alloc: std.mem.Allocator) Logger {
-        return Logger{ .alloc = alloc };
+    pub fn init(alloc: std.mem.Allocator, file_name: ?[]const u8) !Logger {
+        var file: ?std.fs.File = null;
+        var time_buf: [64]u8 = undefined;
+        const timestamp = std.time.timestamp();
+        const time_str = formatTime(timestamp, &time_buf, true);
+        const base_name = file_name orelse fallback_name;
+        const full_name = try std.fmt.allocPrint(alloc, "{s}_{s}.log", .{ base_name, time_str });
+        const file_result = try std.fs.cwd().createFile(full_name, .{
+            .truncate = false,
+            .read = false,
+        });
+        file = file_result;
+
+        return Logger{
+            .alloc = alloc,
+            .file = file,
+        };
     }
 
     pub fn deinit(self: *Logger) void {
-        _ = self;
+        if (self.file) |*f| {
+            f.close();
+        }
     }
 
     pub fn debug(self: *Logger, comptime msg: []const u8, args: anytype) void {
-        logWithLevel("DEBUG", self, msg, args);
+        self.logWithLevel("DEBUG", msg, args);
     }
 
     pub fn info(self: *Logger, comptime msg: []const u8, args: anytype) void {
-        logWithLevel("INFO", self, msg, args);
+        self.logWithLevel("INFO", msg, args);
     }
 
     pub fn warn(self: *Logger, comptime msg: []const u8, args: anytype) void {
-        logWithLevel("WARN", self, msg, args);
+        self.logWithLevel("WARN", msg, args);
     }
 
     pub fn err(self: *Logger, comptime msg: []const u8, args: anytype) void {
-        logWithLevel("ERROR", self, msg, args);
+        self.logWithLevel("ERROR", msg, args);
         self.handleError(msg, args);
     }
 
@@ -32,16 +51,20 @@ pub const Logger = struct {
         _ = self;
         _ = msg;
         _ = args;
-        // You can add actual error handling logic here
+        // Error handling logic here
     }
 
-    fn logWithLevel(comptime level: []const u8, self: *Logger, comptime msg: []const u8, args: anytype) void {
-        _ = self;
-        const stdout = std.io.getStdOut().writer();
-        const timestamp = std.time.timestamp();
+    fn logWithLevel(self: *Logger, comptime level: []const u8, comptime msg: []const u8, args: anytype) void {
         var time_buf: [64]u8 = undefined;
-        const time_str = formatTime(timestamp, &time_buf);
-        stdout.print("{s} - {s}: " ++ msg ++ "\n", .{ time_str, level } ++ args) catch {};
+        const timestamp = std.time.timestamp();
+        const time_str = formatTime(timestamp, &time_buf, false);
+
+        if (self.file) |*file| {
+            file.writer().print("{s} - {s}: " ++ msg ++ "\n", .{ time_str, level } ++ args) catch {};
+        } else {
+            const stdout = std.io.getStdOut().writer();
+            stdout.print("{s} - {s}: " ++ msg ++ "\n", .{ time_str, level } ++ args) catch {};
+        }
     }
 
     fn isLeapYear(year: u32) bool {
@@ -62,7 +85,7 @@ pub const Logger = struct {
         return std.fmt.bufPrint(buffer, "{:0>4}", .{n}) catch "????";
     }
 
-    fn formatTime(timestamp: i64, buffer: []u8) []const u8 {
+    fn formatTime(timestamp: i64, buffer: []u8, for_file_name: bool) []const u8 {
         const SECONDS_PER_MINUTE = 60;
         const SECONDS_PER_HOUR = 60 * SECONDS_PER_MINUTE;
         const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
@@ -103,17 +126,32 @@ pub const Logger = struct {
         var min_buf: [2]u8 = undefined;
         var s_buf: [2]u8 = undefined;
 
-        return std.fmt.bufPrint(
-            buffer,
-            "UTC {s}-{s}-{s} {s}:{s}:{s}",
-            .{
-                pad4(&y_buf, year),
-                pad2(&m_buf, @intCast(month + 1)),
-                pad2(&d_buf, @intCast(day)),
-                pad2(&h_buf, hour),
-                pad2(&min_buf, minute),
-                pad2(&s_buf, second),
-            },
-        ) catch "[format failed]";
+        if (for_file_name) {
+            return std.fmt.bufPrint(
+                buffer,
+                "utc-{s}-{s}-{s}-{s}-{s}-{s}",
+                .{
+                    pad4(&y_buf, year),
+                    pad2(&m_buf, @intCast(month + 1)),
+                    pad2(&d_buf, @intCast(day)),
+                    pad2(&h_buf, hour),
+                    pad2(&min_buf, minute),
+                    pad2(&s_buf, second),
+                },
+            ) catch "[format failed]";
+        } else {
+            return std.fmt.bufPrint(
+                buffer,
+                "UTC {s}-{s}-{s} {s}:{s}:{s}",
+                .{
+                    pad4(&y_buf, year),
+                    pad2(&m_buf, @intCast(month + 1)),
+                    pad2(&d_buf, @intCast(day)),
+                    pad2(&h_buf, hour),
+                    pad2(&min_buf, minute),
+                    pad2(&s_buf, second),
+                },
+            ) catch "[format failed]";
+        }
     }
 };
